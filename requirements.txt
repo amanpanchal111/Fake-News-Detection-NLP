@@ -3,3 +3,10 @@ joblib
 scikit-learn
 pandas
 numpy
+tensorflow
+keras
+wordcloud
+seaborn
+matplotlib
+nbformat
+nbconvert
