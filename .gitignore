@@ -1,0 +1,8 @@
+Fake_News_App/uploads/
+.env
+*.env
+__pycache__/
+*.pyc
+github token
+
+github token

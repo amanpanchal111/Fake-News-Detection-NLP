@@ -1,0 +1,140 @@
+name: MLOps Pipeline for Fake News Detection
+
+permissions:
+  security-events: write
+  contents: write
+  pull-requests: write
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout Repository
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.12.7
+        
+      # Step 3: Install Python Dependencies
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r instructions.txt
+
+      # Step 4: Extract Dataset ZIP
+      - name: Extract Dataset ZIP
+        run: |
+          mkdir -p dataset
+          unzip fake_news_final.zip -d dataset/
+          echo "Dataset extracted."
+          pwd
+
+      # Step 5: Run Dataset Cleaning Script
+      - name: Run Dataset Cleaning Script
+        run: python scripts/clean_dataset.py
+
+      # Step 6: Clone GitHub Repository
+      - name: Clone GitHub Repository
+        run: |
+          git clone https://github.com/amanpanchal111/Fake-News-Detection-NLP dataset/git_repo_FND
+          echo "Repository cloned successfully."
+          pwd
+   
+      # Step 7: Train ML Model
+      - name: Train Model
+        run: |
+          python scripts/train_model.py
+          echo "Model trained successfully."
+        
+      # Step 8: Replace Old Model Files
+      - name: Replace Model Files
+        run: |
+          rm -f Fake_News_App/model.joblib
+          cp dataset/new_model_folder/model.joblib Fake_News_App/
+
+      # Step 9: Configure Git and Push Changes (with conditional check)
+      - name: Configure Git and Push Changes
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      
+          NEW_BRANCH_NAME="feature/new_model_${GITHUB_RUN_NUMBER}"
+      
+          git checkout -b $NEW_BRANCH_NAME
+          git add Fake_News_App/model.joblib
+          git commit -m "Update model.joblib files for run #${GITHUB_RUN_NUMBER}"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/amanpanchal111/Fake-News-Detection-NLP.git $NEW_BRANCH_NAME
+      
+      # Step 10: Install GitHub CLI
+      - name: Install GitHub CLI
+        run: sudo apt-get install -y gh
+      
+      # Step 11: Create Pull Request (conditional on branch existence)
+      - name: Create Pull Request
+        env:
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          NEW_BRANCH_NAME="feature/new_model_${GITHUB_RUN_NUMBER}"
+          echo "Checking for branch $NEW_BRANCH_NAME before creating a pull request."
+      
+          # Ensure the branch exists before attempting to create a PR
+          if ! git show-ref --quiet refs/heads/$NEW_BRANCH_NAME; then
+            echo "Branch $NEW_BRANCH_NAME does not exist. Skipping pull request creation."
+            exit 0
+          fi
+      
+          gh auth login --with-token <<< "${{ secrets.GITHUB_TOKEN }}"
+      
+          gh pr create \
+            --title "Update model.joblib files" \
+            --body "This PR updates the model.joblib files for run #${GITHUB_RUN_NUMBER}" \
+            --base master \
+            --head $NEW_BRANCH_NAME
+
+      # Step 10: Build Docker Image
+      - name: Build Docker Image
+        run: docker build -t amanpanchal111/fake_news_detection:${{ github.run_number }} .
+
+      # Step 11: Push Docker Image to DockerHub
+      - name: Push Docker Image to DockerHub
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          docker push amanpanchal111/fake_news_detection:${{ github.run_number }}
+
+      # Step 12: Clear and Prepare Scan Results Folder
+      - name: Clear Scan Results Folder
+        run: |
+          mkdir -p scan_results
+          rm -rf scan_results/*
+        
+      # Step 13: Initialize CodeQL (SonarQube)
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      # Step 14: Perform CodeQL Analysis (SonarQube)
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+    
+      # Step 15: Pull Trivy Docker Image
+      - name: Pull Trivy Docker Image
+        run: docker pull aquasec/trivy:latest
+
+      # Step 16: Scan Docker Image for Vulnerabilities
+      - name: Scan Docker Image for Vulnerabilities
+        run: |
+          docker run --rm aquasec/trivy:latest image amanpanchal111/fake_news_detection:${{ github.run_number }}

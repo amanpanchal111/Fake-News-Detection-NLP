@@ -1,0 +1,10 @@
+pip install pandas
+# numpy,
+# scikit-learn,
+# keras,
+# transformers,
+# nltk,
+# tensorflow,
+# matplotlib,
+# joblib,
+# wordcloud
